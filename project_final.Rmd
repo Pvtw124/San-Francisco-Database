@@ -1,0 +1,386 @@
+---
+title: "Project"
+author: "Seth Hodgkins"
+date: "12/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(modelr)
+library(tidyverse)
+library(lubridate)
+```
+
+```{r}
+# crime <- read_csv("train.csv",
+# col_types = cols(Dates = col_character())
+# )
+```
+
+```{r}
+# crime <- crime %>%
+#   separate(Dates, into = c("Date", "Time"), sep = " ") %>%
+#   mutate(Date2 = Date) %>%
+#   separate(Date2, into = c("Year", "Month", "Day")) %>%
+#   filter(Year < 2015 | Year > 2004)
+# crime
+# 
+# write_csv(crime, "crimeData.csv")
+```
+
+```{r}
+# weather <- read_csv("temperature.csv", col_types = cols(datetime = col_character())) %>%
+#   select(datetime, San_Francisco) %>%
+#   mutate(Temp = San_Francisco - 273) %>%
+#   select(-San_Francisco) %>%
+#   separate(datetime, into = c("Date", "Time"), sep = " ") %>%
+#   mutate(Date2 = Date) %>%
+#   separate(Date2, into = c("Year", "Month", "Day"))
+# weather
+```
+
+```{r}
+# weather <- weather %>%
+#   mutate(date = make_date(Year, Month, Day)) %>%
+#   group_by(date) %>%
+#   summarise(AvgTemp = mean(Temp, na.rm = TRUE)) %>%
+#   mutate(yday = yday(date)) %>%
+#   select(-yday)
+# weather
+```
+
+
+
+```{r, message = FALSE, echo = FALSE, warning = FALSE}
+crime <- read_csv("crime.csv")
+```
+
+
+
+
+## Temperatures affect on Crime
+
+Here I plotted the number of Crimes at each temperature. I wanted to see if when the weather was hotter there were more crimes.
+```{r}
+tempCrime <- crime %>%
+  group_by(AvgTemp) %>%
+  summarise(n = n()) %>%
+  filter(n < 600 & n > 300)
+
+tempCrime %>%
+  ggplot(aes(x = AvgTemp, y = n)) +
+  geom_point()
+```
+
+Next I made a simple linear model to show the relationship. It seems to be positively correlated.
+```{r}
+modTemp <- lm(n ~ AvgTemp, data = tempCrime)
+coef(modTemp)
+tempCrime %>%
+ggplot(aes(x = AvgTemp, y = n)) +
+  geom_abline(aes(intercept = 378.257837, slope = 2.609722), color = "red") +
+  geom_point()
+```
+
+The residual doesn't seem to follow any sort of pattern, it seems pretty random.
+```{r}
+tempCrime <- tempCrime %>% 
+  add_residuals(modTemp)
+tempCrime %>% 
+  ggplot(aes(AvgTemp, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_line()
+```
+
+This was the model I showed in my presentation, but I was thinking about it afterwords and while I think it does show the correlation truely, it was only out of luck. Because temperature is recorded down to the millionth place there are probably only a few temperatures that are not unique. Looking at the data there is a datapoint at 800 crimes, which I suspect was the result of two days having the exact same temperature, since `800 = 4/2 = 400` and most temperatures are around 400. Besides that data point, they are all essentially the average number of crimes at that temperature, because there is only one temperature for each point and `crimes/1 = crimes`. I think I should still fix this though.
+
+I will do this by...
+
+- rounding each temperature to the nearest degree so we have many data points at each temperature increment
+- adding up the number of crimes in each degree
+- dividing the crimes in each row by the number of days with that temperature
+
+```{r}
+SumTemps <- crime %>%
+  select(Date, AvgTemp) %>%
+  mutate(across(where(is.numeric), round, 0)) %>%
+  group_by(AvgTemp, Date) %>%
+  drop_na() %>%
+  summarise(sumTemp = n())
+
+
+CountTemps <- crime %>%
+  select(Date, AvgTemp) %>%
+  mutate(across(where(is.numeric), round, 0)) %>%
+  group_by(AvgTemp, Date) %>%
+  drop_na() %>%
+  summarise(n = n()) %>%
+  group_by(AvgTemp) %>%
+  summarise(countTemp = n())
+
+weather2 <- SumTemps %>%
+  select(-Date) %>%
+  group_by(AvgTemp) %>%
+  summarise(sumTemp = sum(sumTemp)) %>%
+  left_join(CountTemps, by = "AvgTemp") %>%
+  mutate(CrimesPerTemp = sumTemp / countTemp)
+```
+
+Here is the plot. It is much more readable and shows a more clear linear trend. For some reason it seems to peak and then drop off at 20. Maybe after that it gets too hot for even the criminals.
+```{r}
+weather2 %>%
+  ggplot(aes(x = AvgTemp, y = CrimesPerTemp)) +
+  geom_point() +
+  xlab("Temperature") +
+  ylab("Average Crimes") + 
+  labs(title = "Average Crimes per Temperature")
+```
+
+Lastly I made another simple linear model. I think I was right about the last one being a true correlation, because the slow and intercept of the model are about the same, only off by a small amount
+```{r}
+modTemp <- lm(CrimesPerTemp ~ AvgTemp, data = weather2)
+coef(modTemp)
+weather2 %>%
+ggplot(aes(x = AvgTemp, y = CrimesPerTemp)) +
+  geom_abline(aes(slope = 3.434182, intercept = 361.757525), color = "red") +
+  geom_point()
+```
+
+## Crimes Over Time
+
+```{r, include = FALSE}
+daily <- crime %>%
+  group_by(Date) %>%
+  summarise(n = n())
+```
+
+Here I have plotted the number of crimes each day. It doesn't look to follow any sort of mathematical model, the closest thing would be linear or a parabola though I doubt crime in San Francisco follows a parabola shape. I want to see if I can get rid of some of the apparent noise.
+```{r, message = FALSE, echo = FALSE, warning = FALSE}
+#By Day
+daily <- crime %>%
+  mutate(date = make_date(Year, Month, Day)) %>%
+  group_by(date) %>%
+  summarise(n = n())
+
+ggplot(daily, aes(date, n)) +
+  geom_point()
+
+daily2 <- daily
+```
+
+I thought that it would be good to look for any patterns in the days, weeks, months, and years that could explain the noise.
+
+```{r}
+#By Year
+# daily <- daily %>%
+#   mutate(year = year(date))
+# 
+# ggplot(daily, aes(x = year, y = n, group = year)) +
+#   geom_boxplot()
+```
+
+I started with weekdays. There seems to be an upward trend as the week progresses, peaking at Friday before going back down Saturday and Sunday.
+
+```{r}
+#Weekday
+daily <- daily %>%
+  mutate(wday = wday(date, label = TRUE))
+
+ggplot(daily, aes(wday, n)) +
+  geom_boxplot()
+```
+
+Next I tried the day of Month, something looks a little strange with the first of every month. There is a large peak. This could be because police just put down the 1st of the month when they are feeling lazy more often than any other day. This is a perfect example of something that should be taken out in the model.
+
+```{r}
+#day of Month
+daily <- daily %>%
+  mutate(mday = mday(date))
+
+ggplot(daily, aes(mday, n, group = mday)) +
+  geom_boxplot()
+```
+
+Moving up we have month of year. It seems like it stays steady before October, after which it plummets, and then goes back to normal levels in January.
+
+```{r}
+#month of year
+daily <- daily %>%
+  mutate(month = month(date, label = TRUE))
+
+ggplot(daily, aes(month, n, group = month)) +
+  geom_boxplot()
+```
+
+Lastly we have days of the year. There seems to be a very strong pattern of gaps, maybe between the months? I'm not sure why.
+
+```{r}
+#Day of year
+daily <- daily %>%
+  mutate(yday = yday(date))
+
+ggplot(daily, aes(yday, n, group = yday)) +
+  geom_boxplot()
+```
+
+Next I removed all the patterns I just found. Day of week, day of month, and month of year.
+
+```{r, include = FALSE}
+mod <- lm(n ~ wday, data = daily)
+
+# grid <- Weekday %>% 
+#   data_grid(wday) %>% 
+#   add_predictions(mod, "n")
+# 
+# ggplot(Weekday, aes(wday, n)) + 
+#   geom_boxplot() +
+#   geom_point(data = grid, colour = "red", size = 4)
+
+daily <- daily %>% 
+  add_residuals(mod)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+```
+
+```{r, include = FALSE}
+mod2 <- lm(n ~ mday, data = daily)
+
+# grid <- DayOfMonth %>% 
+#   data_grid(mday) %>% 
+#   add_predictions(mod, "n")
+# 
+# ggplot(DayOfMonth, aes(mday, n, group = mday)) + 
+#   geom_boxplot() +
+#   geom_point(data = grid, colour = "red", size = 4)
+
+daily <- daily %>% 
+  add_residuals(mod2)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+```
+
+
+```{r, include = FALSE}
+mod3 <- lm(n ~ month, data = daily)
+
+# grid <- daily %>% 
+#   data_grid(month) %>% 
+#   add_predictions(mod, "n")
+# 
+# ggplot(daily, aes(month, n, group = month)) + 
+#   geom_boxplot() +
+#   geom_point(data = grid, colour = "red", size = 4)
+
+daily <- daily %>% 
+  add_residuals(mod3)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+```
+
+
+```{r, include = FALSE}
+mod4 <- lm(n ~ yday, data = daily)
+
+# grid <- daily %>% 
+#   data_grid(yday) %>% 
+#   add_predictions(mod, "n")
+# 
+# ggplot(daily, aes(yday, n, group = yday)) + 
+#   geom_boxplot() +
+#   geom_point(data = grid, colour = "red", size = 4)
+
+daily <- daily %>% 
+  add_residuals(mod4)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+```
+
+Here is the residual of all that with a linear model. Disappointingly, It barely seemed to touch any of the noise. I have no idea what could be causing it all.
+
+```{r}
+options(scipen = 10)
+# predDate <- lm(n ~ date, data = daily)
+# b <- predDate[[2]]
+# c <- as_tibble(b)
+# c <- mutate(c, x = predDate$x)
+# 
+# ggplot() +
+#   geom_line(c, mapping = aes(x = date, y = resid)) +
+#   geom_point(daily, mapping = aes(x = date, y = resid))
+# 
+# ggplot(daily, mapping = aes(x = date, y = resid)) +
+#   geom_point() +
+#   geom_smooth(se = FALSE)
+
+predDate <- lm(n ~ date, data = daily)
+coef(predDate)
+daily %>%
+ggplot(aes(x = date, y = n)) +
+  geom_abline(aes(intercept = 370.985724915, slope = 0.001357645), color = "red") +
+  geom_point(alpha = 1/5)
+```
+
+# Date and Weather
+
+I couldn't think of another model so I thought it could be interesting to make a weather model. I immediately recognized a cosine wave.
+
+```{r}
+weather3 <- crime %>%
+  select(Date, AvgTemp) %>%
+  drop_na()
+
+weather3 %>%
+  ggplot(aes(x = Date, y = AvgTemp)) +
+  geom_point() +
+  ylab("Temperature") +
+  labs("Temperature vs Date")
+```
+
+I couldn't figure out an automated way to get a cosine model for this relationship so I made my own. It describes the pattern fairly well.
+
+```{r}
+cosine <- tibble(
+  x = seq(from = 15600, to = 16600, by = 1/15*pi),
+  y = cos(x/59+.55)*6+14
+)
+
+ggplot() + 
+  geom_line(cosine, mapping = aes(x = x, y = y), color = "red") +
+  geom_point(weather3, mapping = aes(x = Date, y = AvgTemp)) +
+  ylab("Temperature") +
+  labs("Temperature vs Date Model")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,490 @@
+---
+title: "San Francisco Crime Analysis"
+author: "Seth Hodgkins"
+date: "12/16/2020"
+output: 
+  slidy_presentation:
+    duration: 12
+    footer: "DSCI 211, Fall 2020, Houghton College"
+    mathjax: default
+---
+
+# Introduction
+```
+# About the Dataset
+```
+The San Francisco Crime Dataset contains over 850,000 reports spanning nearly 12 years. The reports detail when and where the crime occurred, the type of crime, and the resolution.
+
+<center><img src="images/bridge.jpg" /></center>
+
+
+# Exploring the Data
+
+
+Originally I had a smaller version of the dataset I have now, with 150,500 reports all from 2016.
+
+```
+# Tables
+```
+I first asked as many questions as I could, and learned about them through tables
+
+- Questions like...
+
+  - most common crimes
+
+  - day of the weeks effect on crime
+
+  - day of the months effect on crime
+
+  - which criminals are hardest to catch
+
+  - the most common type of crime
+
+  - crimes by district
+
+
+# Visualization
+
+I then went on to visualize the tables I found intriguing
+
+```
+# Spacial Data
+```
+There were lots of questions that involved spacial data, so I needed to learn how to
+use maps. The hardest part was downloading and configuring the map, actually plotting
+data was easy!
+
+Every crime report has a latitude and longitude, allowing you to visualize just about anything on a map.
+
+- A couple visualizations I tried were
+  - Crimes by District
+  - Thefts in January
+  
+# Visualization
+
+```{r, include = FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggmap)
+library(maptools)
+library(ggthemes)
+library(mapproj)
+library(ggwordcloud)
+
+#load and tidy the dataset
+crime <- read_csv("crime_data.csv") %>%
+  separate(Date, into = c("Date2", "trash"), sep = 10) %>%
+  select(-trash) %>%
+  mutate(Date = Date2) %>%
+  separate(Date2, into = c("Month", "Day", "Year"), sep = "/")
+crime
+
+#
+#Credit goes to Ken Steif
+#
+plotTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 18,colour = "black"),
+    plot.subtitle = element_text(face="italic"),
+    plot.caption = element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line("grey80", size = 0.1),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey80", color = "white"),
+    strip.text = element_text(size=12),
+    axis.title = element_text(size=8),
+    axis.text = element_text(size=8),
+    axis.title.x = element_text(hjust=1),
+    axis.title.y = element_text(hjust=1),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    legend.title = element_text(colour = "black", face = "italic"),
+    legend.text = element_text(colour = "black", face = "italic"))
+}
+ 
+# And another that we will use for maps
+mapTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 18,colour = "black"),
+    plot.subtitle=element_text(face="italic"),
+    plot.caption=element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line("grey80", size = 0.1),
+    strip.text = element_text(size=12),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey80", color = "white"),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    legend.title = element_text(colour = "black", face = "italic"),
+    legend.text = element_text(colour = "black", face = "italic"))
+}
+ 
+# Define some palettes
+palette_9_colors <- c("#0DA3A0","#2999A9","#458FB2","#6285BB","#7E7CC4","#9A72CD","#B768D6","#D35EDF","#F055E9")
+palette_8_colors <- c("#0DA3A0","#2D97AA","#4D8CB4","#6E81BF","#8E76C9","#AF6BD4","#CF60DE","#F055E9")
+palette_7_colors <- c("#2D97AA","#4D8CB4","#6E81BF","#8E76C9","#AF6BD4","#CF60DE","#F055E9")
+palette_1_colors <- c("#0DA3A0")
+
+URL <- "https://github.com/simonkassel/Visualizing_SF_home_prices_R/raw/master/Data/SF_neighborhoods.zip"
+# Download the shapefile to your working directory and unzip it.
+download.file(URL, "SF_neighborhoods.zip")
+unzip("SF_neighborhoods.zip")
+# Read it into R as a spatial polygons data frame & plot
+neighb <- readShapePoly("SF_neighborhoods")
+plot(neighb)
+
+# Define the bounding box
+bbox <- neighb@bbox
+
+# Manipulate these values slightly so that we get some padding on our basemap between the edge of the data and the edge of the map
+sf_bbox <- c(left = bbox[1, 1] - .01, bottom = bbox[2, 1] - .005, 
+             right = bbox[1, 2] + .01, top = bbox[2, 2] + .005)
+# Download the basemap
+basemap <- get_stamenmap(
+  bbox = sf_bbox,
+  zoom = 13,
+  maptype = "toner-lite")
+
+# Map it
+bmMap <- ggmap(basemap) + mapTheme() + 
+  labs(title="San Francisco basemap")
+bmMap
+```
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE }
+#Crimes by district
+crimeMap <- ggmap(basemap) + 
+  geom_point(data = crime, aes(x = X, y = Y, color = PdDistrict), 
+             size = .5, alpha = 0.6) +
+  coord_map() +
+  mapTheme() +
+ 
+  labs(title="Crimes by district",
+       subtitle="San Francisco, 2016")
+crimeMap
+```
+
+# Visualization
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+#Thefts in January
+crimeTheft <- filter(crime, Category == "LARCENY/THEFT") %>%
+  filter(Month == "01")
+
+crimeMap <- ggmap(basemap) +
+  geom_point(data = crimeTheft, aes(x = X, y = Y, color = PdDistrict),
+             size = 1, alpha = 0.6) +
+  coord_map() +
+  mapTheme() +
+
+  labs(title="Thefts in January",
+       subtitle="San Francisco, 2016")
+crimeMap
+```
+
+# Visualization
+
+```
+# Non-Spacial Data
+```
+Next, I tried visualizing some non-spatial data like
+
+- Category vs Resolution
+
+- word cloud of `OTHER OFFENSES` descriptions
+
+  - One of the largest values in Category is `OTHER OFFENSES`, which isn't very descriptive
+
+# Visualization
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+crime %>%
+group_by(Resolution, Category) %>%
+summarise(n = n()) %>%
+filter(Resolution == "NONE" | Resolution == "ARREST, BOOKED") %>%
+filter(
+  Category == "LARCENY/THEFT" |
+  Category == "OTHER OFFENSES" |
+  Category == "LARCENY/THEFT" |			
+  Category == "OTHER OFFENSES" |			
+  Category == "NON-CRIMINAL" |
+  Category == "ASSAULT" |
+  Category == "VANDALISM" |			
+  Category == "VEHICLE THEFT" |			
+  Category == "WARRANTS	5914" |			
+  Category == "BURGLARY	5802" |			
+  Category == "SUSPICIOUS OCC" |			
+  Category == "MISSING PERSON" |
+  Category == "DRUG/NARCOTIC" |		
+  Category == "ROBBERY" |		
+  Category == "FRAUD" |
+  Category == "SECONDARY CODES" |			
+  Category == "TRESPASS" |
+  Category == "WEAPON LAWS" |		
+  Category == "SEX OFFENSES, FORCIBLE" |		
+  Category == "STOLEN PROPERTY") %>%
+ggplot(mapping = aes(x = Category, y = n)) + 
+  geom_histogram(aes(fill = Resolution), stat = "identity") +
+  coord_flip() +
+  ylab("Resolution") +
+  xlab("Category") +
+  labs(title = "Resolution by Category")
+```
+
+# Visualization
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+crime10 <- crime %>%
+  select(Descript, Category) %>%
+  filter(Category == "OTHER OFFENSES") %>%
+  group_by(Descript) %>%
+  summarise(size = n()) %>%
+  filter(size > 200)
+
+  ggplot(crime10, aes(label = Descript, size = size, color = Descript)) +
+  geom_text_wordcloud() +
+    scale_size_area(max_size = 6) +
+  theme_minimal() +
+  labs(title = "Other Offenses Wordcloud") 
+  
+```
+
+# Visualization
+
+```
+Importing datasets
+```
+I soon realized there was not enough variables to make a lot of interesting visuals, so I started importing relevant
+datasets I found online. I also noticed a much larger version of my dataset, the one with over 850,000 reports spanning 12 years.
+
+- I imported...
+
+  - Population data for each district
+  
+  - Income data for each district
+  
+  - Five years of weather data
+  
+```
+Putting it to Use
+```
+I'll show you a couple visualizations I made with the new data
+
+- Income by District vs Crime
+
+- Temperature vs Crime
+
+I couldn't find a dataset for population or income in each district so I looked up all the districts individually
+
+```{r, warning = FALSE}
+popDistrict <- tibble(PdDistrict = c("BAYVIEW", "CENTRAL", "INGLESIDE", "MISSION", "NORTHERN", "PARK", "RICHMOND", "SOUTHERN", "TARAVAL", "TENDERLOIN"), Population = c(35363, 76663, 85166, 7291, NA, 29399, 43795, 39198, 163000, 9334), Income = c(84542, 144349, 115728, 161731, NA, 150980, 163708, 144394, 169947, 95281))
+popDistrict
+```
+
+# Visualizations
+
+```{r, message = FALSE, echo = FALSE, warning = FALSE}
+crime9 <- crime %>%
+  left_join(popDistrict, by = "PdDistrict") %>%
+  select(PdDistrict, Income, Population) %>%
+  add_count(PdDistrict) %>%
+  mutate(Crimes_per_person = n/Population) 
+
+crime9 %>%
+  ggplot(aes(x = Income, y = Crimes_per_person)) +
+  geom_line() + 
+  ylab("Crimes per Person") +
+  labs(title = "Income vs. Crimes per Person") +
+  xlab("Income") +
+  geom_hline(yintercept = 0, color = "blue")
+```
+
+# Visualizations
+
+```{r, include = FALSE}
+crime <- read_csv("crime.csv")
+
+tempCrime <- crime %>%
+  group_by(AvgTemp) %>%
+  summarise(n = n()) %>%
+  filter(n < 600 & n > 300)
+```
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+modTemp <- lm(n ~ AvgTemp, data = tempCrime)
+coef(modTemp)
+tempCrime %>%
+ggplot(aes(x = AvgTemp, y = n)) +
+  geom_abline(aes(intercept = 378.257837, slope = 2.609722), color = "red") +
+  geom_point(alpha = 3/4) +
+  labs(title = "Average Temperature vs. Crime") +
+  xlab("Average Temperature") +
+  ylab("Crimes") +
+  geom_segment(aes(xend = AvgTemp+1, yend = n+2.6097), alpha = 3/5)
+
+```
+
+# Modeling
+Finally, I moved onto the modeling stage where I struggled quite a bit. The first thing I tried to do was create a model that would
+show me how the rate of crime has fluctuated over the years.
+
+```
+# Date vs Crime
+```
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+#By Day
+daily <- crime %>%
+  mutate(date = make_date(Year, Month, Day)) %>%
+  group_by(date) %>%
+  summarise(n = n())
+
+ggplot(daily, aes(date, n)) +
+  geom_point() +
+  labs(title = "Date vs. Crime") +
+  xlab("Date") +
+  ylab("Crimes")
+daily2 <- daily
+```
+
+# Modeling
+I thought most of the spikes were due to crime patterns in the days of the week, days of the month, months of the year, and days of the year. I visualized each and then used models of them to try to get a better relationship between date and crime.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+#Weekday
+daily <- daily %>%
+  mutate(wday = wday(date, label = TRUE))
+  
+
+ggplot(daily, aes(wday, n)) +
+  geom_boxplot() +
+  labs(title = "Day of Week vs. Crime") +
+  xlab("Day of Week") +
+  ylab("Crimes")
+
+#day of Month
+daily <- daily %>%
+  mutate(mday = mday(date))
+
+ggplot(daily, aes(mday, n, group = mday)) +
+  geom_boxplot() +
+  labs(title = "Day of Month vs. Crime") +
+  xlab("Day of Month") +
+  ylab("Crimes")
+
+#month of year
+daily <- daily %>%
+  mutate(month = month(date, label = TRUE))
+
+ggplot(daily, aes(month, n, group = month)) +
+  geom_boxplot() +
+  labs(title = "Month of Year vs. Crime")+
+  xlab("Month of Year") +
+  ylab("Crimes")
+
+#Day of year
+daily <- daily %>%
+  mutate(yday = yday(date))
+ggplot(daily, aes(yday, n, group = yday)) +
+  geom_boxplot() +
+  labs(title = "Day of Year vs. Crime") +
+  xlab("Day of Year") +
+  ylab("Crimes")
+```
+
+# Modeling
+
+Unfortunately that didn't seem to do much. The residual didn't look any better after all that work.
+```{r, include = FALSE}
+
+library(modelr)
+
+mod <- lm(n ~ wday, data = daily)
+
+daily <- daily %>% 
+  add_residuals(mod)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+
+mod2 <- lm(n ~ mday, data = daily)
+
+daily <- daily %>% 
+  add_residuals(mod2)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+
+mod3 <- lm(n ~ month, data = daily)
+
+daily <- daily %>% 
+  add_residuals(mod3)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+
+mod4 <- lm(n ~ yday, data = daily)
+
+daily <- daily %>% 
+  add_residuals(mod4)
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_point()
+```
+
+```
+# Results
+```
+
+There does seem to be a slight incline, meaning crime is rising.
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+options(scipen = 10)
+
+predDate <- lm(n ~ date, data = daily)
+coef(predDate)
+daily %>%
+ggplot(aes(x = date, y = n)) +
+  geom_abline(aes(intercept = 370.985724915, slope = 0.001357645), color = "red") +
+  geom_point(alpha = 1/5)
+```
+
+# Conclusion
+
+```
+# What I've Learned
+```
+Understanding what affects crime is difficult. There are so many variables that you would never think of. I would have never considered that temperature would have such a strong correlation to crime. My job is also made harder because the data is imperfect. It is recorded by police, not data scientists. Sometimes they cut corners, recording many crimes all at once, and giving the exact same time for multiple reports, and under the same ID.
+
+```
+# Machine Learning
+```
+Because the San Francisco crime dataset does not follow obvious statistical patterns, I think this data set is better suited for machine learning. The dataset on Kaggle is actually a competition dataset for machine learning. When looking through the notebooks people submitted, I noticed they all used the data as a training set to develop amazingly accurate classification models.
+
+# References
+
+wordcloud
+
+https://github.com/lepennec/ggwordcloud
+
+How to map San Francisco (Ken Steif)
+
+http://urbanspatialanalysis.com/dataviz-tutorial-mapping-san-francisco-home-prices-using-r/
+
+Kaggle dataset
+
+https://www.kaggle.com/roshansharma/sanfranciso-crime-dataset
+
+What is TREA?
+
+https://www.kaggle.com/c/sf-crime/discussion/16289
